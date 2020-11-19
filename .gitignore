@@ -1,0 +1,12 @@
+# Logs
+logs
+*.log
+
+#app config files
+config.json
+
+#timetable csv files
+tt/
+
+# dotenv environment variables file
+.env
