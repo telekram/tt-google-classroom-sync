@@ -1,6 +1,7 @@
 # Logs
 logs
 *.log
+log.txt
 
 #app config files
 config.json
