@@ -3,6 +3,7 @@ $script:config = Get-Content -Raw -Path .\config.json | ConvertFrom-Json
 [PSCustomObject]$script:Dataset = @{}
 
 function Get-DataSourceObject ($csvPath) {
+
   function Main {
     
     Get-TimetableDataAsObjectFromCsvFiles
@@ -11,8 +12,11 @@ function Get-DataSourceObject ($csvPath) {
     Add-ClassCodesToSubjectsObject
     Add-TeachersToSubjectObject
     Add-DomainLeadersToSubjectObject
+    Add-StudentsToDataset
+    Add-ClassCodesToStudents
     Add-ClassCodesToDataset
     Add-StudentsToClassCodes
+
   }
 
   function Get-TimetableDataAsObjectFromCsvFiles {
@@ -38,7 +42,9 @@ function Get-DataSourceObject ($csvPath) {
     [System.Collections.ArrayList]$subjects = @()
 
     $progressCounter = 0
-    $prgressTotal = $script:TimetableObj.ClassNames | Sort-Object -Property 'Subject Code' -Unique
+    
+    $prgressTotal = $script:TimetableObj.ClassNames | 
+      Sort-Object -Property 'Subject Code' -Unique
 
     $script:TimetableObj.ClassNames |
       Sort-Object -Property 'Subject Code' -Unique | 
@@ -104,17 +110,20 @@ function Get-DataSourceObject ($csvPath) {
       )
     }
     
-    $subjectsWithoutClassesIndex = @()
+    $indexesOfSubjectsWihtoutAnyClasses = @()
     $index = 0
+
     $script:Dataset.Subjects | ForEach-Object {
       if($_.ClassCodes.Count -eq 0) {
-        $subjectsWithoutClassesIndex += $index
+        $indexesOfSubjectsWihtoutAnyClasses += $index
       }
       $index = $index + 1
     }
     
-    $subjectsWithoutClassesIndex | Sort-Object -Descending | ForEach-Object {
-      $script:Dataset.Subjects.RemoveAt($_)
+    $indexesOfSubjectsWihtoutAnyClasses | 
+      Sort-Object -Descending | 
+        ForEach-Object {
+          $script:Dataset.Subjects.RemoveAt($_)
     }
     
   }
@@ -137,7 +146,6 @@ function Get-DataSourceObject ($csvPath) {
       $periodNumber = $_.'Period No'
       $teacherCode = $_.'Teacher Code'
 
-
       if(Test-ActiveDirectoryForUser($teacherCode)) {
 
         $compositeClassCandiateRows = $script:TimetableObj.Timetable | 
@@ -147,10 +155,10 @@ function Get-DataSourceObject ($csvPath) {
               $_.'Period No' -eq $periodNumber -and 
               $_.'Teacher Code' -eq $teacherCode
             }
-
       } else {
         "Staff code '$teacherCode' not found in Active Directory" | Out-File -FilePath .\log.txt -Append
       }
+
     
 
       if ($compositeClassCandiateRows.Count -gt 1) { # if theres more than 1 it's a composite class
@@ -160,6 +168,7 @@ function Get-DataSourceObject ($csvPath) {
           $compositeClassName = $compositeClassCandiateRows.'Class Code'[0] +  '-' + $compositeClassCandiateRows.'Class Code'[1]
 
           $compositeClasses += [PSCustomObject]@{
+            'SubjectCode' = $compositeClassName
             'SubjectName' = "Composite $compositeClassName"  
             'ClassCodes' = $compositeClassCandiateRows.'Class Code'
             'Teachers' = $compositeClassCandiateRows.'Teacher Code' | Sort-Object -Unique
@@ -211,7 +220,7 @@ function Get-DataSourceObject ($csvPath) {
         $allTimetabledTeacherCodes | ForEach-Object {
 
           $teacherCode = $_
-          
+
           if(Test-ActiveDirectoryForUser($teacherCode)) {
             $teachers += $teacherCode.ToLower() + $script:config.domainName
           } else {
@@ -269,6 +278,7 @@ function Get-DataSourceObject ($csvPath) {
           $dLeader = $_.Member.ToLower() + $script:config.domainName
 
           if(!$isDomainLeaderAlreadyAdded) {
+
             if(Test-ActiveDirectoryForUser($_.Member)) {
               $subject | Add-Member -MemberType NoteProperty -Name DomainLeader -Value $dLeader
             } else {
@@ -290,7 +300,7 @@ function Get-DataSourceObject ($csvPath) {
     }
   }
 
-  function Get-StudentsObjectFromTimetableObject {
+  function Add-StudentsToDataset {
 
     [System.Collections.ArrayList]$students = @()
 
@@ -298,11 +308,16 @@ function Get-DataSourceObject ($csvPath) {
       Sort-Object -Property 'Student Code' -Unique |
         ForEach-Object {
 
-          [void]$students.Add([PSCustomObject]@{ 
-            StudentCode = $_.'Student Code'
-          })
-        }
+          $studentCode = $_.'Student Code'
 
+          if(Test-ActiveDirectoryForUser($studentCode)){
+
+            [void]$students.Add([PSCustomObject]@{ 
+              StudentCode = $studentCode
+            })
+
+          }
+        }
     $script:Dataset.Students = $students
   }
 
@@ -377,8 +392,9 @@ function Get-DataSourceObject ($csvPath) {
       }
 
       $students | ForEach-Object {
+
         if (Test-ActiveDirectoryForUser($_)) {
-          $studentsInActiveDirectory += $_
+          $studentsInActiveDirectory += $_.ToLower() + $script:config.domainName
         } else {
           "Student: '$_' not found in Active Directory" | Out-File -FilePath .\log.txt -Append
         }
@@ -400,9 +416,15 @@ function Get-DataSourceObject ($csvPath) {
 
   function Test-ActiveDirectoryForUser($user) {
 
-    $searchBase = "OU=Users,OU=CSC,DC=curric,DC=cheltenham-sc,DC=wan"
-    return Get-ADUser -Filter { SamAccountName -eq $user } -SearchBase $searchBase
-    
+    if($script:config.isActiveDirectoryAvailable) { 
+
+      $searchBase = "OU=Users,OU=CSC,DC=curric,DC=cheltenham-sc,DC=wan"
+      return Get-ADUser -Filter { SamAccountName -eq $user } -SearchBase $searchBase
+
+    } else {
+      return 1
+    }
+
   }
 
   

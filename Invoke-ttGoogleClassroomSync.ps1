@@ -1,21 +1,22 @@
 param(
-  [string]$csvpath=$null,
-  [switch]$AddSubjects,
-  [switch]$AddClasses,
-  [switch]$AddTeachersToSubjects,
+  [string]$CsvPath=$null,
+  [string]$ShowSubjects=$null,
+  [string]$AddSubjects=$null,
+  [string]$AddClasses=$null,
+  [string]$AddTeachersToSubjects=$null,
   [switch]$AddTeachersToClasses,
   [switch]$AddStudentsToClasses,
+  [switch]$AddCompositeClasses,
   [switch]$GetRemoteCourses
 ) 
 
 $script:config = Get-Content -Raw -Path .\config.json | ConvertFrom-Json
 
-Remove-Item -Path .\log.txt
-
 Import-Module .\lib\dataSources.psm1 -Force -Scope Local
 Import-Module .\lib\sessionManager.psm1 -Force -Scope Local
 
 $DS = Get-DataSourceObject($csvpath)
+
 $CA = $script:config.classroomAdmin
 $AY = $script:config.academicYear
  
@@ -24,32 +25,41 @@ $session = Get-ScriptPSSession
 Invoke-Command -Session $session -ScriptBlock {
 
   $DataSet = $Using:DS
+  
+  $DataSet.Subjects
 
   $academicYear = $Using:AY
   $classroomAdmin = $Using:CA
+  $showSubjects = $Using:ShowSubjects
   $addSubjects = $Using:AddSubjects
   $addClasses = $Using:AddClasses
   $addTeachersToSubjects = $Using:AddTeachersToSubjects
   $addTeachersToClasses = $Using:AddTeachersToClasses
   $addStudentsToClasses = $Using:AddStudentsToClasses
+  $addCompositeClasses = $Using:AddCompositeClasses
   $getRemoteCourses = $Using:GetRemoteCourses
+
   
   function Main {
 
     if($getRemoteCourses){
       Get-CoursesFromGoogle
     }
-    
-    if($addSubjects) {
-      Add-SubjectCoursesToGoogle
+
+    if(!$null -eq $showSubjects) {
+      Show-Subject($showSubjects)
+    } 
+
+    if(!$null -eq $addSubjects) {
+      Add-SujectCoursesToGoogle($addSubjects)
+    } 
+
+    if(!$null -eq $addClasses) {
+      Add-ClassCoursesToGoogle($addClasses)
     }
 
-    if($addClasses) {
-      Add-ClassCoursesToGoogle
-    }
-
-    if($addTeachersToSubjects) {
-      Add-TeachersToSubjects
+    if(!$null -eq $addTeachersToSubjects) {
+      Add-TeachersToSubjects($addTeachersToSubjects)
     }
 
     if($addTeachersToClasses) {
@@ -59,6 +69,11 @@ Invoke-Command -Session $session -ScriptBlock {
     if($addStudentsToClasses){
       Add-StudentsToClasses
     }
+
+    if($addCompositeClasses){
+      Add-CompositeClasses
+    }
+
   }
 
 
@@ -70,8 +85,7 @@ Invoke-Command -Session $session -ScriptBlock {
 	
     $courses = $gCourses | ConvertFrom-Csv -Delim ','
     $courses | ForEach-Object {
-
-      
+    
       [void]$script:CloudCourses.Add([PSCustomObject]@{
         Id = $_.id
         Name = $_.Name
@@ -85,36 +99,57 @@ Invoke-Command -Session $session -ScriptBlock {
     }
 
     $coursesArray = @()
-    $script:CloudCourses | ForEach-Object {
-
-      Write-Host 'doing stuff...'
-      
+    
+    $script:CloudCourses | ForEach-Object {      
 
       $courseInfo = gam info course $_.id | Out-String
       $courseInfo = $courseInfo | ConvertFrom-Csv -Delim ','
-
       
       $coursesArray += $courseInfo
     }
   }
 
-  function Add-SubjectCoursesToGoogle {
+
+  function Show-Subject($subject) {
+
+    $s = $DataSet.Subjects | 
+      Where-Object { $_.SubjectCode -like "*$subject*" } 
+
+    if(!$s) {
+      Write-Host "Subject(s): '$subject' not found"
+      exit
+    }
+
+    $s
+  }
+
+  function Add-SujectCoursesToGoogle($subject) {
     
+    $s = $DataSet.Subjects | 
+      Where-Object { $_.SubjectCode -like "*$subject*" } 
+
+    if(!$s) {
+      Write-Host "Subject(s): '$subject' not found"
+      exit
+    }
+
     $progressCounter = 0
 
-    $DataSet.Subjects | ForEach-Object {
+    $s | ForEach-Object {
 
+      $course = [PSCustomObject]@{
+        Type = 'Subject'
+        Code = $_.SubjectCode
+        Name = $_.SubjectName
+        Faculty = $_.FacultyName
+      }
+
+      Publish-Course($course)
+      
       $subjectCode = $_.SubjectCode
       $subjectName = $_.SubjectName
-      $facultyName = $_.FacultyName
 
-
-      $command = "gam create course alias $subjectCode name '$subjectCode (Teachers)' section '$subjectName' heading $facultyName description 'Subject Domain: $facultyName' teacher $classroomAdmin status active"
-      
-      #Write-Host $command
-      Invoke-Expression $command | Out-File -FilePath .\log.txt -Append
-      
-      $progressBarMessage = "Adding subject course: $subjectCode - $subjectName "
+      $progressBarMessage = "Adding subject course: $subjectCode - $subjectName"
       $progressCounter = $progressCounter + 1
 
       Get-ProgressBar (
@@ -124,27 +159,68 @@ Invoke-Command -Session $session -ScriptBlock {
         'Magenta'
       )
     }
-
   }
 
-  function Add-ClassCoursesToGoogle {
+  function Publish-Course($courseAttributes) {
+
+    $c = $courseAttributes
+
+    if([string]::IsNullOrWhiteSpace($c.Type)){
+      Write-Host "Publish course error: course type not defined. Script will exit"
+      exit
+    }
+
+    if ($c.Type -eq 'Subject') {
+
+      $alias = $c.Code
+      $name = $c.Code + ' (Teachers)'
+      $section = $c.Name -Replace '[^a-zA-Z0-9-_ ]', ''
+
+    } elseif ($c.Type -eq 'Class') {
+
+      $alias = $academicYear + '-' + $c.Code
+      $name = $c.Code
+      $section = $c.Name -Replace '[^a-zA-Z0-9-_ ]', ''
+      $section = $academicYear + ' ' + $section 
+    }
     
+    $section = $c.Name -Replace '[^a-zA-Z0-9-_ ]', ''
+    $description = 'Subject Domain: ' + $c.Faculty + ' - ' + $section   
+
+    $cmd = "gam create course alias $alias name '$name' section '$section' description '$description' heading $alias teacher $classroomAdmin status active"
+    Write-Host $cmd
+  }
+
+
+  function Add-ClassCoursesToGoogle($subject) {
+
     $progressCounter = 0
 
-    $DataSet.Subjects | ForEach-Object {
+    $s = $DataSet.Subjects | 
+      Where-Object { $_.SubjectCode -like "*$subject*" } 
+
+    if(!$s) {
+      Write-Host "Subject(s): '$subject' not found"
+      exit
+    }
+
+    $s | ForEach-Object {
       
       $subjectName = $_.SubjectName
-      $facultyName = $_.FacultyName
+      $faculty = $_.FacultyName
 
       $_.ClassCodes | ForEach-Object {
 
         $cc = $_
-        $alias = $academicYear + $cc
+
+        $course = [PSCustomObject]@{
+          Type = 'Class'
+          Code = $cc
+          Name = $subjectName
+          Faculty = $faculty
+        }
         
-        $command = "gam create course alias $alias name $_ section '$subjectName' heading $facultyName description 'Subject Domain: $facultyName' teacher $classroomAdmin status active"
-        
-        #Write-Host $command
-        Invoke-Expression $command | Out-File -FilePath .\log.txt -Append
+        Publish-Course($course)
       }
 
       $progressBarMessage = "Adding class course: $cc"
@@ -159,12 +235,19 @@ Invoke-Command -Session $session -ScriptBlock {
     }
   }
 
-  function Add-TeachersToSubjects {
+  function Add-TeachersToSubjects($subject) {
 
-    $DataSet.Subjects
     $progressCounter = 0
 
-    $DataSet.Subjects | ForEach-Object {
+    $s = $DataSet.Subjects | 
+      Where-Object { $_.SubjectCode -like "*$subject*" } 
+
+    if(!$s) {
+      Write-Host "Subject(s): '$subject' not found"
+      exit
+    }
+
+    $s | ForEach-Object {
 
       $subjectCode = $_.SubjectCode
       $teachers = $_.Teachers
@@ -172,8 +255,7 @@ Invoke-Command -Session $session -ScriptBlock {
 
       if(![string]::IsNullOrWhiteSpace($domainLeader)) {
         $command = "gam course $subjectCode add teacher $domainLeader"
-        #Write-Host $command
-        Invoke-Expression $command | Out-File -FilePath .\log.txt -Append
+        Invoke-Expression $command
       }
 
       $teachers | ForEach-Object {
@@ -181,11 +263,65 @@ Invoke-Command -Session $session -ScriptBlock {
         $teacher = $_
         $command = "gam course $subjectCode add teacher $teacher"
 
-        #Write-Host $command
-        Invoke-Expression $command | Out-File -FilePath .\log.txt -Append
+        Invoke-Expression $command 
       }  
       
       $progressBarMessage = "Adding teacher to course course: $subjectCode"
+      $progressCounter = $progressCounter + 1
+
+      Get-ProgressBar (
+        $progressCounter,
+        $DataSet.Subjects.Count,
+        $progressBarMessage,
+        'Magenta'
+      )
+    }
+  }
+
+    
+  function Add-CompositeClasses {
+
+    $progressCounter = 0
+
+    $DataSet.CompositeClasses | ForEach-Object {
+
+      $subjectCode = $_.SubjectCode
+      $subjectName = $_.SubjectName
+
+      $classAlias = "$academicYear-$subjectCode"
+
+      $course = [PSCustomObject]@{
+        Type = 'Class'
+        Code = $_.SubjectCode
+        Name = $_.SubjectName
+        Faculty = ''
+      }
+
+      Publish-Course($course)
+
+      $_.Teachers | ForEach-Object {
+
+        $teacher = $_
+
+        $command = "gam course $classAlias add teacher $teacher"
+        Invoke-Expression $command 
+      }
+
+
+      $_.ClassCodes | ForEach-Object {
+        
+        $classCode = $_
+        
+        $DataSet.Classes.$classCode | ForEach-Object {
+
+          $student = $_
+
+          $command = "gam course $classAlias add student $student"
+          Invoke-Expression $command 
+        }
+      }
+
+      $progressBarMessage = "Adding subject course: $subjectCode - $subjectName"
       $progressCounter = $progressCounter + 1
 
       Get-ProgressBar (
@@ -201,7 +337,15 @@ Invoke-Command -Session $session -ScriptBlock {
 
     $progressCounter = 0
 
-    $DataSet.Subjects | ForEach-Object {
+    $s = $DataSet.Subjects | 
+      Where-Object { $_.SubjectCode -like "*$subject*" } 
+
+    if(!$s) {
+      Write-Host "Subject(s): '$subject' not found"
+      exit
+    }
+
+    $s | ForEach-Object {
 
       $subjectCode = $_.SubjectCode
       $domainLeader = $_.DomainLeader
@@ -214,8 +358,8 @@ Invoke-Command -Session $session -ScriptBlock {
 
         if(![string]::IsNullOrWhiteSpace($domainLeader)) {
           $command = "gam course $class add teacher $domainLeader"
-          #Write-Host $command
-          Invoke-Expression $command | Out-File -FilePath .\log.txt -Append
+
+          Invoke-Expression $command
         }
 
 
@@ -224,9 +368,10 @@ Invoke-Command -Session $session -ScriptBlock {
           $t = $_
 
           if(![string]::IsNullOrWhiteSpace($t)) {
+
             $command = "gam course $class add teacher $t"
-            #Write-Host $command
-            Invoke-Expression $command | Out-File -FilePath .\log.txt -Append
+            Invoke-Expression $command
+
           }
         }
       }  
@@ -257,8 +402,8 @@ Invoke-Command -Session $session -ScriptBlock {
       $students | ForEach-Object {
         $s = $_
         $command = "gam course $class add student $s"
-        #Write-Host $command
-        Invoke-Expression $command | Out-File -FilePath .\log.txt -Append
+        
+        Invoke-Expression $command
       }
 
       $progressBarMessage = "Adding students to course: $class"
@@ -278,7 +423,7 @@ Invoke-Command -Session $session -ScriptBlock {
     $progressCounter = $arg[0]
     $totalCount = $arg[1]
     $progressBarMessage = $arg[2]
-    $progressBarColor = $arg[3]
+    #$progressBarColor = $arg[3]
 
     #$Host.PrivateData.ProgressBackgroundColor=$progressBarColor
 
