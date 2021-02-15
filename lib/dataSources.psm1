@@ -10,12 +10,12 @@ function Get-DataSourceObject ($csvPath) {
     Add-SubjectsToDataset
     Get-CompositeClasses
     Add-ClassCodesToSubjectsObject
-    Add-TeachersToSubjectObject
-    Add-DomainLeadersToSubjectObject
-    Add-StudentsToDataset
-    Add-ClassCodesToStudents
-    Add-ClassCodesToDataset
-    Add-StudentsToClassCodes
+    #Add-TeachersToSubjectObject
+    #Add-DomainLeadersToSubjectObject
+    #Add-StudentsToDataset
+    #Add-ClassCodesToStudents
+    # Add-ClassCodesToDataset
+    # Add-StudentsToClassCodes
 
   }
 
@@ -308,7 +308,7 @@ function Get-DataSourceObject ($csvPath) {
       Sort-Object -Property 'Student Code' -Unique |
         ForEach-Object {
 
-          $studentCode = $_.'Student Code'
+          $studentCode = $_.'Student Code'.ToLower() + $script:config.domainName
 
           if(Test-ActiveDirectoryForUser($studentCode)){
 
@@ -333,7 +333,9 @@ function Get-DataSourceObject ($csvPath) {
       $studentCode = $_.StudentCode
 
       $studentLessonRows = $script:TimetableObj.StudentLessons | Where-Object {
-        $_.'Student Code' -eq $studentCode
+        $studentLessonsStudentCode = $_.'Student Code'.ToLower() + $script:config.domainName
+
+        $studentLessonsStudentCode -eq $studentCode
       }
 
       $studentLessonRows | ForEach-Object {
@@ -344,7 +346,7 @@ function Get-DataSourceObject ($csvPath) {
       $_ | Add-Member -MemberType NoteProperty -Name ClassCodes -Value $cCodes
 
       $progressCounter = $progressCounter + 1
-      $progressBarMessage = 'Adding classes for: ' + $studentCode + ' [' + $cCodes + ']'
+      $progressBarMessage = 'Adding classes for: ' + $studentCode.ToLower() + ' [' + $cCodes + ']'
 
       Get-ProgressBar (
         $progressCounter,
