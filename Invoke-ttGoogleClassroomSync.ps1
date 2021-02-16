@@ -27,6 +27,7 @@ $session = Get-ScriptPSSession
 
 Invoke-Command -Session $session -ScriptBlock {
 
+  $GAM = [PSCustomObject]@{}
   $DataSet = $Using:DS
 
 
@@ -150,6 +151,9 @@ Invoke-Command -Session $session -ScriptBlock {
 
     $progressCounter = 0
 
+    # $subjectCount = @($s).Count 
+    # $subjectCount
+
     $s | ForEach-Object {
 
       $course = [PSCustomObject]@{
@@ -158,55 +162,25 @@ Invoke-Command -Session $session -ScriptBlock {
         Name = $_.SubjectName
         Faculty = $_.FacultyName
       }
+    
 
-      Publish-Course($course)
-      
       $subjectCode = $_.SubjectCode
       $subjectName = $_.SubjectName
 
-      $progressBarMessage = "Adding subject course: $subjectCode - $subjectName"
+
       $progressCounter = $progressCounter + 1
+      $progressBarMessage = "Adding course: $subjectCode - $subjectName"
+
 
       Get-ProgressBar (
         $progressCounter,
-        $DataSet.Subjects.Count,
+        @($s).Count,
         $progressBarMessage,
         'Magenta',
         0
       )
-    }
-  }
 
-  function Publish-Course($courseAttributes) {
-
-    $c = $courseAttributes
-
-    if([string]::IsNullOrWhiteSpace($c.Type)){
-      Write-Host "Publish course error: course type not defined. Script will exit"
-      exit
-    }
-
-    if ($c.Type -eq 'Subject') {
-
-      $alias = $c.Code
-      $name = $c.Code + ' (Teachers)'
-      
-    } elseif ($c.Type -eq 'Class') {
-
-      $alias = $academicYear + '-' + $c.Code
-      $name = $c.Code
-    }
-    
-    $section = $c.Name -Replace '[^a-zA-Z0-9-_ ]', ''
-    $description = 'Subject Domain: ' + $c.Faculty + ' - ' + $section
-    $room = $academicYear
-
-    $cmd = "gam create course alias $alias name '$name' section '$section' description '$description' heading $alias room $room teacher $classroomAdmin status active"
-
-    if(!$isSimulatingCommands) {
-      Invoke-Expression $cmd
-    } else {
-      #Write-Host $cmd
+      $GAM.PublishCourse($course)
     }
   }
 
@@ -223,23 +197,29 @@ Invoke-Command -Session $session -ScriptBlock {
       exit
     }
 
+    $subjectCount = @($s).Count
+
     $s | ForEach-Object {
 
       $progressCounter1 = 0
       $classCodesCount = $_.ClassCodes.Count
       
+      $subjectCode = $_.subjectCode
       $subjectName = $_.SubjectName
       $faculty = $_.FacultyName
 
-      $progressBarMessage = "Subject: $subjectName"
-
+      
+      $progressBarMessage = "Subject: $subjectCode - $subjectName"
+      
       Get-ProgressBar (
         $progressCounter0,
-        $DataSet.Subjects.Count,
+        $subjectCount,
         $progressBarMessage,
         'Magenta',
         0
       )
+
+      $progressCounter0 = $progressCounter0 + 1
 
       $_.ClassCodes | ForEach-Object {
 
@@ -264,109 +244,75 @@ Invoke-Command -Session $session -ScriptBlock {
           1
         )
         
-        Publish-Course($course)   
+        $GAM.PublishCourse($course)
       }
-      
-      $progressCounter0 = $progressCounter0 + 1
     }
   }
 
-    
-  function Add-CompositeClasses {
-
-    $progressCounter = 0
-
-    $DataSet.CompositeClasses | ForEach-Object {
-
-      $subjectCode = $_.SubjectCode
-      $subjectName = $_.SubjectName
-
-      $classAlias = "$academicYear-$subjectCode"
-
-      $course = [PSCustomObject]@{
-        Type = 'Class'
-        Code = $_.SubjectCode
-        Name = $_.SubjectName
-        Faculty = ''
-      }
-
-      Publish-Course($course)
-
-      $_.Teachers | ForEach-Object {
-
-        $teacher = $_
-
-        if(!$isSimulatingCommands) {
-          Write-Host $cmd
-          $cmd = "gam course $classAlias add teacher $teacher"
-          Invoke-Expression $cmd
-        } else {
-          Write-Host $cmd
-        }
-      }
-
-
-      $_.ClassCodes | ForEach-Object {
-        
-        $classCode = $_
-        
-        $DataSet.Classes.$classCode | ForEach-Object {
-
-          $student = $_
-
-          $command = "gam course $classAlias add student $student"
-          #Invoke-Expression $command
-
-          Write-Host "Theres a bug here command is disabled. Investigate"
-          Write-Host $command 
-        }
-      }
-
-      $progressBarMessage = "Adding subject course: $subjectCode - $subjectName"
-      $progressCounter = $progressCounter + 1
-
-      Get-ProgressBar (
-        $progressCounter,
-        $DataSet.Subjects.Count,
-        $progressBarMessage,
-        'Magenta'
-      )
-    }
-  }
 
   function Add-TeachersToSubjects($subject) {
 
-    $progressCounter = 0
-    
+    $s = $DataSet.Subjects | 
+    Where-Object { $_.SubjectCode -like "*$subject*" } 
+
+    if(!$s) {
+      Write-Host "Subject(s): '$subject' not found"
+      exit
+    }
+
+    $progressCounter0 = 0
+    $subjectCount = @($s).Count
+
     $s | ForEach-Object {
 
       $subjectCode = $_.SubjectCode
       $teachers = $_.Teachers
       $domainLeader = $_.DomainLeader
 
+      $progressBarMessage0 = "Subject: $subjectCode"
+      $progressCounter0 = $progressCounter0 + 1
+
       if(![string]::IsNullOrWhiteSpace($domainLeader)) {
-        
-        $command = "gam course $subjectCode add teacher $domainLeader"
-        Invoke-Expression $command
+
+        if($teachers -notcontains $domainLeader){
+          $teachers += $domainLeader
+        }
       }
+
+      $progressCounter1 = 0
+      $teacherCount = $teachers.Count
+
+      Get-ProgressBar (
+        $progressCounter0,
+        $subjectCount,
+        $progressBarMessage0,
+        'Magenta',
+        0
+      )
 
       $teachers | ForEach-Object {
         
         $teacher = $_
-        $command = "gam course $subjectCode add teacher $teacher"
 
-        Invoke-Expression $command 
+        $courseParticipant = [PSCustomObject]@{
+          Course = $subjectCode
+          Type = 'Teacher'
+          Participant = $teacher
+        }
+
+        $progressCounter1 = $progressCounter1 + 1
+        $progressBarMessage1 = "Adding $teacher to course: " + $academicYear + '-' + $subjectCode
+
+        Get-ProgressBar (
+          $progressCounter1,
+          $teacherCount,
+          $progressBarMessage1,
+          'Magenta',
+          1
+        )
+  
+        $GAM.AddCourseParticipant($courseParticipant)
       }  
-      
-      $progressBarMessage = $command
-      $progressCounter = $progressCounter + 1
-
-      Get-ProgressBar (
-        $progressCounter,
-        $DataSet.Subjects.Count,
-        $progressBarMessage,
-        'Magenta'
-      )
     }
   }
 
@@ -434,6 +380,68 @@ Invoke-Command -Session $session -ScriptBlock {
     }
   }
 
+  function Add-CompositeClasses {
+
+    $progressCounter = 0
+
+    $DataSet.CompositeClasses | ForEach-Object {
+
+      $subjectCode = $_.SubjectCode
+      $subjectName = $_.SubjectName
+
+      $classAlias = "$academicYear-$subjectCode"
+
+      $course = [PSCustomObject]@{
+        Type = 'Class'
+        Code = $_.SubjectCode
+        Name = $_.SubjectName
+        Faculty = ''
+      }
+
+      Publish-Course($course)
+
+      $_.Teachers | ForEach-Object {
+
+        $teacher = $_
+
+        if(!$isSimulatingCommands) {
+          Write-Host $cmd
+          $cmd = "gam course $classAlias add teacher $teacher"
+          Invoke-Expression $cmd
+        } else {
+          Write-Host $cmd
+        }
+      }
+
+
+      $_.ClassCodes | ForEach-Object {
+        
+        $classCode = $_
+        
+        $DataSet.Classes.$classCode | ForEach-Object {
+
+          $student = $_
+
+          $command = "gam course $classAlias add student $student"
+          #Invoke-Expression $command
+
+          Write-Host "Theres a bug here command is disabled. Investigate"
+          Write-Host $command 
+        }
+      }
+
+      $progressBarMessage = "Adding subject course: $subjectCode - $subjectName"
+      $progressCounter = $progressCounter + 1
+
+      Get-ProgressBar (
+        $progressCounter,
+        $DataSet.Subjects.Count,
+        $progressBarMessage,
+        'Magenta'
+      )
+    }
+  }
+
 
   function Add-StudentsToClasses {
 
@@ -474,6 +482,88 @@ Invoke-Command -Session $session -ScriptBlock {
       # )
     }
   }
+
+
+  $publishCourse = {
+
+    param([PSCustomObject]$courseAttributes)
+
+    $c = $courseAttributes
+
+    if([string]::IsNullOrWhiteSpace($c.Type)){
+      Write-Host "Publish course error: course type not defined. Script will exit"
+      exit
+    }
+
+    if ($c.Type -eq 'Subject') {
+
+      $alias = $c.Code
+      $name = $c.Code + ' (Teachers)'
+      
+    } elseif ($c.Type -eq 'Class') {
+
+      $alias = $academicYear + '-' + $c.Code
+      $name = $c.Code
+    }
+    
+    $section = $c.Name -Replace '[^a-zA-Z0-9-_ ]', ''
+    $description = 'Subject Domain: ' + $c.Faculty + ' - ' + $section
+    $room = $academicYear
+
+    $cmd = "gam create course alias $alias name '$name' section '$section' description '$description' heading $alias room $room teacher $classroomAdmin status active"
+
+    if(!$isSimulatingCommands) {
+      Invoke-Expression $cmd
+    } else {
+      Write-Host $cmd
+      Start-Sleep -Seconds 1
+    }
+  }
+
+  $GAM | Add-Member -MemberType ScriptMethod -Name PublishCourse -Value $publishCourse
+
+
+
+  $addCourseParticipant = {
+
+    param([PSCustomObject]$courseParticipant)
+
+    if([string]::IsNullOrWhiteSpace($courseParticipant.Type)){
+      Write-Host "Add course participant error: Participant type not defined (stduent/teacher). Script will exit"
+      exit
+    }
+
+    if([string]::IsNullOrWhiteSpace($courseParticipant.Course)){
+      Write-Host "Add course participant error: Course not specified. Script will exit"
+      exit
+    }
+
+    $course = $courseParticipant.Course
+    $type = $courseParticipant.Type
+    $participant = $courseParticipant.Participant
+
+    $cmd = $null
+
+    if($courseParticipant.Type -eq 'Student') {
+
+      $cmd = "gam course $course add $type $participant"
+
+    } elseif ($courseParticipant.Type -eq 'Teacher') {
+
+      $cmd = "gam course $course add $type $participant"
+
+    }
+
+    if(!$isSimulatingCommands) {
+      Invoke-Expression $cmd
+    } else {
+      Write-Host $cmd
+      Start-Sleep -Seconds 1
+    }
+  }
+
+  $GAM | Add-Member -MemberType ScriptMethod -Name AddCourseParticipant -Value $addCourseParticipant
+
 
   function Get-ProgressBar ($arg) {    
     
