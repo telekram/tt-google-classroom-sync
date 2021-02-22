@@ -11,7 +11,6 @@ function Get-ScriptPSSession () {
 
   if ($isRemoteSession) {
     $session = New-PSSession -ComputerName gads1.curric.cheltenham-sc.wan -UseSSL -Credential $cred
-    #$session = New-PSSession -ComputerName gads1.curric.cheltenham-sc.wan -Credential $cred
   } else {
     $session = New-PSSession
   }
@@ -28,8 +27,7 @@ function Clear-ScriptPSSession {
   $cred = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $sessionUser, $sessionPWord
   
   if ($isRemoteSession) {
-    #$r = Get-PSSession -ComputerName gads1.curric.cheltenham-sc.wan -UseSSL -Credential $cred
-    $r = Get-PSSession -ComputerName gads1.curric.cheltenham-sc.wan -Credential $cred
+    $r = Get-PSSession -ComputerName gads1.curric.cheltenham-sc.wan -UseSSL -Credential $cred
     $r | Remove-PSSession
   }
 }
