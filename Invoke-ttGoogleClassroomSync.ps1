@@ -151,8 +151,6 @@ Invoke-Command -Session $session -ScriptBlock {
 
     $progressCounter = 0
 
-    # $subjectCount = @($s).Count 
-    # $subjectCount
 
     $s | ForEach-Object {
 
@@ -279,9 +277,6 @@ Invoke-Command -Session $session -ScriptBlock {
         }
       }
 
-      $progressCounter1 = 0
-      $teacherCount = $teachers.Count
-
       Get-ProgressBar (
         $progressCounter0,
         $subjectCount,
@@ -289,6 +284,9 @@ Invoke-Command -Session $session -ScriptBlock {
         'Magenta',
         0
       )
+
+      $progressCounter1 = 0
+      $teacherCount = $teachers.Count
 
       $teachers | ForEach-Object {
         
@@ -318,8 +316,6 @@ Invoke-Command -Session $session -ScriptBlock {
 
   function Add-TeachersToClasses($subject) {
 
-    $progressCounter = 0
-
     $s = $DataSet.Subjects | 
       Where-Object { $_.SubjectCode -like "*$subject*" } 
 
@@ -328,6 +324,9 @@ Invoke-Command -Session $session -ScriptBlock {
       exit
     }
 
+    $progressCounter0 = 0
+    $subjectCount = @($s).Count
+
     $s | ForEach-Object {
 
       $subjectCode = $_.SubjectCode
@@ -335,48 +334,129 @@ Invoke-Command -Session $session -ScriptBlock {
       $teachers = $_.Teachers
       $classCodes = $_.ClassCodes
 
+      $progressBarMessage0 = "Working on subject: $subjectCode"
+      $progressCounter0 = $progressCounter0 + 1
+
+      Get-ProgressBar (
+        $progressCounter0,
+        $subjectCount,
+        $progressBarMessage0,
+        'Magenta',
+        0
+      )
+
+      $progressCounter1 = 0
+      $classCount = @($classCodes).Count
+
       $classCodes | ForEach-Object {
         
         $class = $academicYear + '-' + $_
 
         if(![string]::IsNullOrWhiteSpace($domainLeader)) {
-          $command = "gam course $class add teacher $domainLeader"
 
-          Invoke-Expression $command
+          $courseParticipant = [PSCustomObject]@{
+            Course = $class
+            Type = 'Teacher'
+            Participant = $domainLeader
+          }
+
+          $GAM.AddCourseParticipant($courseParticipant)
         }
 
+        $progressCounter1 = $progressCounter1 + 1
+        $progressBarMessage1 = "Working on class: $class"
+
+        Get-ProgressBar (
+          $progressCounter1,
+          $classCount,
+          $progressBarMessage1,
+          'Magenta',
+          1
+        )
+
+        $progressCounter2 = 0
+        $teacherCount = @($teachers).Count
 
         $teachers | ForEach-Object {
 
-          $t = $_
+          $teacher = $_
 
-          if(![string]::IsNullOrWhiteSpace($t)) {
+          $progressCounter2 = $progressCounter2 + 1
+          $progressBarMessage2 = "Adding $teacher to Google Course $class"
 
-            $command = "gam course $class add teacher $t"
-            Invoke-Expression $command
+          Get-ProgressBar (
+            $progressCounter2,
+            $teacherCount,
+            $progressBarMessage2,
+            'Magenta',
+            2
+          )
 
+
+          if(![string]::IsNullOrWhiteSpace($teacher)) {
+
+            $courseParticipant = [PSCustomObject]@{
+              Course = $class
+              Type = 'Teacher'
+              Participant = $teacher
+            }
+  
+            $GAM.AddCourseParticipant($courseParticipant)
           }
         }
+      }  
+    }
+  }
 
-        $progressBarMessage = $command
+
+  function Add-StudentsToClasses {
+
+    $progressCounter0 = 0
+    
+    $DataSet.Classes | ForEach-Object {
+
+      $class = $academicYear + '-' + $_.ClassCode
+      
+      $students = $_.StudentCodes
+
+      $progressCounter0 = $progressCounter0 + 1
+      $progressBarMessage0 = "Google Course: $class"
+
+      Get-ProgressBar (
+        $progressCounter0,
+        $DataSet.Classes.Count,
+        $progressBarMessage0,
+        'Magenta',
+        0
+      )
+
+      $progressCounter1 = 0
+      $studentCount = $students.Count
+
+      $students | ForEach-Object {
+
+        $student = $_
+
+        $progressCounter1 = $progressCounter1 + 1
+        $progressBarMessage1 = "Adding student $student"
+
 
         Get-ProgressBar (
-          $progressCounter,
-          $DataSet.Subjects.Count,
-          $progressBarMessage,
-          'Magenta'
+          $progressCounter1,
+          $studentCount,
+          $progressBarMessage1,
+          'Magenta',
+          1
         )
-      }  
 
-      
-      $progressCounter = $progressCounter + 1
+        $courseParticipant = [PSCustomObject]@{
+          Course = $class
+          Type = 'Student'
+          Participant = $student
+        }
 
-      # Get-ProgressBar (
-      #   $progressCounter,
-      #   $DataSet.Subjects.Count,
-      #   $progressBarMessage,
-      #   'Magenta'
-      # )
+        $GAM.AddCourseParticipant($courseParticipant)
+      }
     }
   }
 
@@ -442,46 +522,6 @@ Invoke-Command -Session $session -ScriptBlock {
     }
   }
 
-
-  function Add-StudentsToClasses {
-
-    $progressCounter = 0
-
-    $DataSet.Classes | ForEach-Object {
-
-      $class = $academicYear + '-' + $_.ClassCode
-      
-      $students = $_.StudentCodes
-
-      $students | ForEach-Object {
-
-        $s = $_
-
-        $command = "gam course $class add student $s"
-
-        $progressBarMessage = $command
-
-        Invoke-Expression $command
-
-        Get-ProgressBar (
-          $progressCounter,
-          $DataSet.Classes.Count,
-          $progressBarMessage,
-          'Magenta'
-        )
-      }
-
-      
-      $progressCounter = $progressCounter + 1
-
-      # Get-ProgressBar (
-      #   $progressCounter,
-      #   $DataSet.Classes.Count,
-      #   $progressBarMessage,
-      #   'Magenta'
-      # )
-    }
-  }
 
 
   $publishCourse = {
@@ -575,13 +615,17 @@ Invoke-Command -Session $session -ScriptBlock {
 
     #$Host.PrivateData.ProgressBackgroundColor=$progressBarColor
 
-    if ($progressBarId -gt 0) {
-      Write-Progress -Id $progressBarId -ParentId 0 -Activity $progressBarMessage -Status "Progress:" -PercentComplete ($progressCounter / $totalCount * 100)
-    } else {
-      Write-Progress -Id $progressBarId -Activity $progressBarMessage -Status "Progress:" -PercentComplete ($progressCounter / $totalCount * 100)
-    }
-
-    
+    switch ($progressBarId) {
+      0 {
+        Write-Progress -Id $progressBarId -Activity $progressBarMessage -Status "Progress:" -PercentComplete ($progressCounter / $totalCount * 100)
+      }
+      1 {
+        Write-Progress -Id $progressBarId -ParentId 0 -Activity $progressBarMessage -Status "Progress:" -PercentComplete ($progressCounter / $totalCount * 100)
+      }
+      2 {
+        Write-Progress -Id $progressBarId -ParentId 1 -Activity $progressBarMessage -Status "Progress:" -PercentComplete ($progressCounter / $totalCount * 100)
+      }
+    }  
   }
 
   Main
