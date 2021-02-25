@@ -5,7 +5,7 @@ param(
   [string]$AddClasses=$null,
   [string]$AddTeachersToSubjects=$null,
   [string]$AddTeachersToClasses=$null,
-  [switch]$AddStudentsToClasses,
+  [string]$AddStudentsToClasses=$null,
   [switch]$AddCompositeClasses,
   [switch]$GetRemoteCourses,
   [switch]$TestGamCommand,
@@ -75,8 +75,8 @@ Invoke-Command -Session $session -ScriptBlock {
       Add-TeachersToClasses($addTeachersToClasses)
     }
 
-    if($addStudentsToClasses){
-      Add-StudentsToClasses
+    if(!$null -eq $addStudentsToClasses){
+      Add-StudentsToClasses($addStudentsToClasses)
     }
 
     if($addCompositeClasses){
@@ -409,14 +409,22 @@ Invoke-Command -Session $session -ScriptBlock {
   }
 
 
-  function Add-StudentsToClasses {
+  function Add-StudentsToClasses($class) {
 
-    $progressCounter0 = 0
+    $c = $DataSet.Classes | 
+    Where-Object { $_.ClassCode -like "*$class*" } 
+
+    if(!$c) {
+      Write-Host "Subject(s): '$class' not found"
+      exit
+    }
     
-    $DataSet.Classes | ForEach-Object {
+    $progressCounter0 = 0
+
+    $c | ForEach-Object {
 
       $class = $academicYear + '-' + $_.ClassCode
-      
+     
       $students = $_.StudentCodes
 
       $progressCounter0 = $progressCounter0 + 1
