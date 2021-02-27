@@ -5,17 +5,18 @@ $script:config = Get-Content -Raw -Path .\config.json | ConvertFrom-Json
 function Get-DataSourceObject ($csvPath) {
 
   function Main {
-    
+    $script:config
+
     Get-TimetableDataAsObjectFromCsvFiles
     Add-SubjectsToDataset
     Get-CompositeClasses
     Add-ClassCodesToSubjectsObject
-    #Add-TeachersToSubjectObject
-    #Add-DomainLeadersToSubjectObject
+    Add-TeachersToSubjectObject
+    add-DomainLeadersToSubjectObject
     #Add-StudentsToDataset
     #Add-ClassCodesToStudents
-    # Add-ClassCodesToDataset
-    # Add-StudentsToClassCodes
+    Add-ClassCodesToDataset
+    Add-StudentsToClassCodes
 
   }
 
@@ -67,8 +68,7 @@ function Get-DataSourceObject ($csvPath) {
           Get-ProgressBar (
             $progressCounter, 
             $prgressTotal.count, 
-            $progressBarMessage, 
-            'Magenta'
+            $progressBarMessage
           )
         }
     
@@ -105,8 +105,7 @@ function Get-DataSourceObject ($csvPath) {
 
       Get-ProgressBar ($progressCounter, 
         $script:Dataset.Subjects.count, 
-        $progressBarMessage, 
-        'DarkCyan'
+        $progressBarMessage
       )
     }
     
@@ -239,8 +238,7 @@ function Get-DataSourceObject ($csvPath) {
       Get-ProgressBar (
         $progressCounter,
         $script:Dataset.Subjects.count,
-        $progressBarMessage,
-        'Magenta'
+        $progressBarMessage
       )
     }
   }
@@ -294,8 +292,7 @@ function Get-DataSourceObject ($csvPath) {
       Get-ProgressBar (
         $progressCounter,
         $script:Dataset.Subjects.Count,
-        $progressBarMessage,
-        'Green'
+        $progressBarMessage
       )
     }
   }
@@ -351,8 +348,7 @@ function Get-DataSourceObject ($csvPath) {
       Get-ProgressBar (
         $progressCounter,
         $script:Dataset.Students.count,
-        $progressBarMessage,
-        'DarkCyan'
+        $progressBarMessage
       )
     }
   }
@@ -410,8 +406,7 @@ function Get-DataSourceObject ($csvPath) {
       Get-ProgressBar (
         $progressCounter,
         $script:Dataset.Classes.Count,
-        $progressBarMessage,
-        'Magenta'
+        $progressBarMessage
       )
     }
   }
@@ -420,7 +415,7 @@ function Get-DataSourceObject ($csvPath) {
 
     if($script:config.isActiveDirectoryAvailable) { 
 
-      $searchBase = "OU=Users,OU=CSC,DC=curric,DC=cheltenham-sc,DC=wan"
+      $searchBase = $script:config.AdSearchBase
       return Get-ADUser -Filter { SamAccountName -eq $user } -SearchBase $searchBase
 
     } else {
@@ -435,9 +430,6 @@ function Get-DataSourceObject ($csvPath) {
     $progressCounter = $arg[0]
     $totalCount = $arg[1]
     $progressBarMessage = $arg[2]
-    $progressBarColor = $arg[3]
-
-    $Host.PrivateData.ProgressBackgroundColor=$progressBarColor
 
     Write-Progress -Activity $progressBarMessage -Status "Progress:" -PercentComplete ($progressCounter / $totalCount * 100)
   }
