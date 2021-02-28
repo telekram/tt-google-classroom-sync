@@ -5,7 +5,6 @@ $script:config = Get-Content -Raw -Path .\config.json | ConvertFrom-Json
 function Get-DataSourceObject ($csvPath) {
 
   function Main {
-    $script:config
 
     Get-TimetableDataAsObjectFromCsvFiles
     Add-SubjectsToDataset
