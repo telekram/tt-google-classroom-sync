@@ -12,11 +12,7 @@ function Get-DataSourceObject ($csvPath) {
     Add-ClassCodesToSubjectsObject
     Add-TeachersToSubjectObject
     add-DomainLeadersToSubjectObject
-    #Add-StudentsToDataset
-    #Add-ClassCodesToStudents
-    Add-ClassCodesToDataset
     Add-StudentsToClassCodes
-
   }
 
   function Get-TimetableDataAsObjectFromCsvFiles {
@@ -83,7 +79,9 @@ function Get-DataSourceObject ($csvPath) {
     
     $script:Dataset.Subjects | ForEach-Object {
   
+      $subject = $_
       $sc = $_.SubjectCode
+
 
       $cc = $script:TimetableObj.ClassNames | 
         Where-Object { 
@@ -94,7 +92,19 @@ function Get-DataSourceObject ($csvPath) {
       $DiffOfCompositeAndStandardClasses = Compare-Object -ReferenceObject $cc.'Class Code' -DifferenceObject $compositeClassList
 
       if($DiffOfCompositeAndStandardClasses.SideIndicator -eq '<='){
-        $_ | Add-Member -MemberType NoteProperty -Name ClassCodes -Value $cc.'Class Code'
+        
+        [System.Collections.ArrayList]$classCodes = @()
+
+        $cc.'Class Code' | ForEach-Object {
+          $classCode = $_
+
+          [void]$classCodes.Add([PSCustomObject]@{
+            Class = $classCode
+          })
+        }
+
+        $subject | Add-Member -MemberType NoteProperty -Name ClassCodes -Value $classCodes
+
       } 
 
       $progressCounter = $progressCounter + 1
@@ -207,7 +217,7 @@ function Get-DataSourceObject ($csvPath) {
   
       $subject.ClassCodes | ForEach-Object {
   
-        $cCodes = $_
+        $cCodes = $_.Class
   
         $t = $TimetableObj.Timetable | Where-Object { 
           $_.'Class Code' -eq $cCodes 
@@ -296,92 +306,20 @@ function Get-DataSourceObject ($csvPath) {
     }
   }
 
-  function Add-StudentsToDataset {
-
-    [System.Collections.ArrayList]$students = @()
-
-    $script:TimetableObj.StudentLessons | 
-      Sort-Object -Property 'Student Code' -Unique |
-        ForEach-Object {
-
-          $studentCode = $_.'Student Code'.ToLower() + $script:config.domainName
-
-          if(Test-ActiveDirectoryForUser($studentCode)){
-
-            [void]$students.Add([PSCustomObject]@{ 
-              StudentCode = $studentCode
-            })
-
-          }
-        }
-    $script:Dataset.Students = $students
-  }
-
-
-  function Add-ClassCodesToStudents {
-
-    $progressCounter = 0
-
-    $script:Dataset.Students | ForEach-Object {
-    
-      [Array]$cCodes = @()
-
-      $studentCode = $_.StudentCode
-
-      $studentLessonRows = $script:TimetableObj.StudentLessons | Where-Object {
-        $studentLessonsStudentCode = $_.'Student Code'.ToLower() + $script:config.domainName
-
-        $studentLessonsStudentCode -eq $studentCode
-      }
-
-      $studentLessonRows | ForEach-Object {
-        $cCodes += $_.'Class Code'
-      }
-
-      
-      $_ | Add-Member -MemberType NoteProperty -Name ClassCodes -Value $cCodes
-
-      $progressCounter = $progressCounter + 1
-      $progressBarMessage = 'Adding classes for: ' + $studentCode.ToLower() + ' [' + $cCodes + ']'
-
-      Get-ProgressBar (
-        $progressCounter,
-        $script:Dataset.Students.count,
-        $progressBarMessage
-      )
-    }
-  }
-
-  function Add-ClassCodesToDataset {
-    
-    [System.Collections.ArrayList]$classes = @()
-
-    $script:TimetableObj.StudentLessons | 
-      Sort-Object -Property 'Class Code' -Unique |
-        ForEach-Object {
-
-          [void]$classes.Add([PSCustomObject]@{ 
-            ClassCode = $_.'Class Code'
-          })
-        }
-
-    $script:Dataset.Classes = $classes
-    
-  }
 
   function Add-StudentsToClassCodes {
 
     $progressCounter = 0
 
-    $script:Dataset.Classes | ForEach-Object {
+    $script:Dataset.Subjects.ClassCodes | ForEach-Object { 
 
       [Array]$students = @()
       [Array]$studentsInActiveDirectory = @()
 
-      $classCode = $_.ClassCode
+      $class = $_.Class
 
       $studentLessonRows = $script:TimetableObj.StudentLessons | Where-Object {
-        $_.'Class Code' -eq $classCode
+        $_.'Class Code' -eq $class
       }
 
       $studentLessonRows | Sort-Object -Unique | ForEach-Object {
@@ -390,21 +328,23 @@ function Get-DataSourceObject ($csvPath) {
 
       $students | ForEach-Object {
 
-        if (Test-ActiveDirectoryForUser($_)) {
-          $studentsInActiveDirectory += $_.ToLower() + $script:config.domainName
+        $student = $_
+
+        if (Test-ActiveDirectoryForUser($student)) {
+          $studentsInActiveDirectory += $student.ToLower() + $script:config.domainName
         } else {
-          "Student: '$_' not found in Active Directory" | Out-File -FilePath .\log.txt -Append
+          "Student: $student not found in Active Directory" | Out-File -FilePath .\log.txt -Append
         }
       }
 
-      $_ | Add-Member -MemberType NoteProperty -Name StudentCodes -Value $studentsInActiveDirectory
+      $_ | Add-Member -MemberType NoteProperty -Name Students -Value $studentsInActiveDirectory
 
       $progressCounter = $progressCounter + 1
-      $progressBarMessage = 'Adding students to: ' + $classCode + ' [' + $studentsInActiveDirectory + ']'
+      $progressBarMessage = 'Adding students to: ' + $class + ' [' + $studentsInActiveDirectory + ']'
 
       Get-ProgressBar (
         $progressCounter,
-        $script:Dataset.Classes.Count,
+        $script:Dataset.Subjects.ClassCodes.Class.Count,
         $progressBarMessage
       )
     }
