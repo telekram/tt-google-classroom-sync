@@ -8,16 +8,32 @@ param(
   [string]$AddStudentsToClasses=$null,
   [switch]$AddCompositeClasses,
   [switch]$GetRemoteCourses,
+  [string]$FindRemoteCourse=$null,
   [string]$TestGamCommand=$null,
   [switch]$SimulateCommands
 ) 
 
-$script:config = Get-Content -Raw -Path .\config.json | ConvertFrom-Json
 
+$ScriptParameters = [PSCustomObject]@{
+  CsvPath = $CsvPath
+  ShowSubjects = $ShowSubjects
+  AddSubjects = $AddSubjects
+  AddClasses = $AddClasses
+  AddTeachersToSubjects = $AddTeachersToSubjects
+  AddTeachersToClasses = $AddTeachersToClasses
+  AddStudentsToClasses = $AddStudentsToClasses
+  AddCompositeClasses = $AddCompositeClasses
+  GetRemoteCourses = $GetRemoteCourses
+  FindRemoteCourse = $FindRemoteCourse
+  SimulateCommands = $SimulateCommands
+  TestGamCommand = $TestGamCommand
+}
+
+$script:config = Get-Content -Raw -Path .\config.json | ConvertFrom-Json
 Import-Module .\lib\dataSources.psm1 -Force -Scope Local
 Import-Module .\lib\sessionManager.psm1 -Force -Scope Local
 
-$DS = Get-DataSourceObject($csvpath)
+$DS = Get-DataSourceObject($scriptParameters.CsvPath)
 
 $CA = $script:config.classroomAdmin
 $AY = $script:config.academicYear
@@ -31,92 +47,56 @@ Invoke-Command -Session $session -ScriptBlock {
 
   $academicYear = $Using:AY
   $classroomAdmin = $Using:CA
-  $showSubjects = $Using:ShowSubjects
-  $addSubjects = $Using:AddSubjects
-  $addClasses = $Using:AddClasses
-  $addTeachersToSubjects = $Using:AddTeachersToSubjects
-  $addTeachersToClasses = $Using:AddTeachersToClasses
-  $addStudentsToClasses = $Using:AddStudentsToClasses
-  $addCompositeClasses = $Using:AddCompositeClasses
-  $getRemoteCourses = $Using:GetRemoteCourses
-  $testGamCommand = $Using:TestGamCommand
-  $isSimulatingCommands = $Using:SimulateCommands
+
+  $scriptParameters = $Using:ScriptParameters 
 
   
   function Main {
 
-    if(!$null -eq $testGamCommand){
-      Test-GamCommand($testGamCommand)
+    if(!$null -eq $scriptParameters.TestGamCommand){
+      Test-GamCommand($scriptParameters.TestGamCommand)
     }
 
-    if($getRemoteCourses){
+    if($scriptParameters.GetRemoteCourses){
       Get-CoursesFromGoogle
     }
 
-    if(!$null -eq $showSubjects) {
-      Show-Subject($showSubjects)
+    if(!$null -eq $scriptParameters.ShowSubjects) {
+      Show-Subject($scriptParameters.ShowSubjects)
     } 
 
-    if(!$null -eq $addSubjects) {
-      Add-SujectCoursesToGoogle($addSubjects)
+    if(!$null -eq $scriptParameters.AddSubjects) {
+      Add-SujectCoursesToGoogle($scriptParameters.AddSubjects)
     } 
 
-    if(!$null -eq $addClasses) {
-      Add-ClassCoursesToGoogle($addClasses)
+    if(!$null -eq $scriptParameters.AddClasses) {
+      Add-ClassCoursesToGoogle($scriptParameters.AddClasses)
     }
 
-    if(!$null -eq $addTeachersToSubjects) {
-      Add-TeachersToSubjects($addTeachersToSubjects)
+    if(!$null -eq $scriptParameters.AddTeachersToSubjects) {
+      Add-TeachersToSubjects($scriptParameters.AddTeachersToSubjects)
     }
 
-    if(!$null -eq $addTeachersToClasses) {
-      Add-TeachersToClasses($addTeachersToClasses)
+    if(!$null -eq $scriptParameters.AddTeachersToClasses) {
+      Add-TeachersToClasses($scriptParameters.AddTeachersToClasses)
     }
 
-    if(!$null -eq $addStudentsToClasses){
-      Add-StudentsToClasses($addStudentsToClasses)
+    if(!$null -eq $scriptParameters.AddStudentsToClasses){
+      Add-StudentsToClasses($scriptParameters.AddStudentsToClasses)
     }
 
-    if($addCompositeClasses){
+    if(!$null -eq $scriptParameters.FindRemoteCourse){
+      $GAM.FindRemoteCourse($scriptParameters.FindRemoteCourse)
+    }
+
+    if($scriptParameters.AddCompositeClasses){
       Add-CompositeClasses
     }
-
   }
 
   function Test-GamCommand($subject) {
-
-    Get-CoursesFromGoogle
-    #gam info course '2021-1ACC115'
-    # $p = gam print course-participants course '2021-1ACC115' 2> $null | Out-String
     
-    # $part = $p | ConvertFrom-Csv -Delim ','
     
-    # #$part
-    # $part | ForEach-Object {
-    #   $_.'profile.emailAddress'
-      
-    # }
-
-
-    # $syncSubject = {
-    #   param([string]$subject)
-      
-
-    #   # $isSubjectInGoogle = $script:CloudCourses | Where-Object {
-    #   #   $_.DescriptionHeading -eq $subject
-    #   # }
-
-    #   #$isSubjectInGoogle.Count
-
-
-    # }
-
-
-
-    # $GAM | Add-Member -MemberType ScriptMethod -Name SyncSubject -Value $syncSubject
-
-    # $GAM.SyncSubject($subject)
-
   }
 
 
@@ -155,10 +135,9 @@ Invoke-Command -Session $session -ScriptBlock {
         Section = $_.Section
         EnrollmentCode = $_.EnrollmentCode
       })
-
     }
 
-    #$script:CloudCourses
+    $script:CloudCourses
   }
 
 
@@ -567,16 +546,20 @@ Invoke-Command -Session $session -ScriptBlock {
       exit
     }
 
-    if ($c.Type -eq 'Subject') {
+    switch ($c.Type) {
 
-      $alias = $c.Code
-      $name = $c.Code + ' (Teachers)'
-      
-    } elseif ($c.Type -eq 'Class') {
+      'Subject' {
+        $alias = $c.Code
+        $name = $c.Code + ' (Teachers)'
+      }
 
-      $alias = $academicYear + '-' + $c.Code
-      $name = $c.Code
+      'Class' {
+
+        $alias = $academicYear + '-' + $c.Code
+        $name = $c.Code
+      }
     }
+
     
     $section = $c.Name -Replace '[^a-zA-Z0-9-_ ]', ''
     $description = 'Subject Domain: ' + $c.Faculty + ' - ' + $section
@@ -614,17 +597,7 @@ Invoke-Command -Session $session -ScriptBlock {
     $type = $courseParticipant.Type
     $participant = $courseParticipant.Participant
 
-    $cmd = $null
-
-    if($courseParticipant.Type -eq 'Student') {
-
-      $cmd = "gam course $course add $type $participant"
-
-    } elseif ($courseParticipant.Type -eq 'Teacher') {
-
-      $cmd = "gam course $course add $type $participant"
-
-    }
+    $cmd = "gam course $course add $type $participant"
 
     if(!$isSimulatingCommands) {
       Invoke-Expression $cmd
@@ -636,7 +609,20 @@ Invoke-Command -Session $session -ScriptBlock {
 
   $GAM | Add-Member -MemberType ScriptMethod -Name AddCourseParticipant -Value $addCourseParticipant
 
+  $findRemoteCourse = {
+    param([string]$subject)
 
+    Get-CoursesFromGoogle
+    
+    $returnedSubjects = $script:CloudCourses | Where-Object { 
+      $_.DescriptionHeading -like "*$subject*" 
+    }
+
+    $returnedSubjects
+  }
+
+  $GAM | Add-Member -MemberType ScriptMethod -Name FindRemoteCourse -Value $findRemoteCourse
+  
   function Get-ProgressBar ($arg) {    
     
     $progressCounter = $arg[0]
@@ -644,17 +630,13 @@ Invoke-Command -Session $session -ScriptBlock {
     $progressBarMessage = $arg[2]
     $progressBarId = $arg[3]
 
-    switch ($progressBarId) {
-      0 {
-        Write-Progress -Id $progressBarId -Activity $progressBarMessage -Status "Progress:" -PercentComplete ($progressCounter / $totalCount * 100)
-      }
-      1 {
-        Write-Progress -Id $progressBarId -ParentId 0 -Activity $progressBarMessage -Status "Progress:" -PercentComplete ($progressCounter / $totalCount * 100)
-      }
-      2 {
-        Write-Progress -Id $progressBarId -ParentId 1 -Activity $progressBarMessage -Status "Progress:" -PercentComplete ($progressCounter / $totalCount * 100)
-      }
-    }  
+    if ($progressBarMessage -eq 0) {
+      Write-Progress -Id $progressBarId -Activity $progressBarMessage -Status "Progress:" -PercentComplete ($progressCounter / $totalCount * 100)
+    } else {
+
+      $parentId = $progressBarId - 1
+      Write-Progress -Id $progressBarId -ParentId $parentId -Activity $progressBarMessage -Status "Progress:" -PercentComplete ($progressCounter / $totalCount * 100)
+    }
   }
 
   Main

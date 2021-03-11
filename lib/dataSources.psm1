@@ -374,6 +374,7 @@ function Get-DataSourceObject ($csvPath) {
   }
 
   Main
+
   return $script:Dataset
 }
 
