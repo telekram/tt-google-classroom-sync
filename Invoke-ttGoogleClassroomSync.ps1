@@ -25,7 +25,7 @@ $ScriptParameters = [PSCustomObject]@{
   AddCompositeClasses = $AddCompositeClasses
   GetRemoteCourses = $GetRemoteCourses
   FindRemoteCourse = $FindRemoteCourse
-  SimulateCommands = $SimulateCommands
+  IsSimulateCommands = $SimulateCommands
   TestGamCommand = $TestGamCommand
 }
 
@@ -473,9 +473,12 @@ Invoke-Command -Session $session -ScriptBlock {
 
   function Add-CompositeClasses {
 
-    $progressCounter = 0
+    $progressCounter0 = 0
+    $compositeClassCount = @($DataSet.CompositeClasses).Count
 
     $DataSet.CompositeClasses | ForEach-Object {
+
+      $compositeClassCodes = $_.ClassCodes
 
       $subjectCode = $_.SubjectCode
       $subjectName = $_.SubjectName
@@ -484,55 +487,83 @@ Invoke-Command -Session $session -ScriptBlock {
 
       $course = [PSCustomObject]@{
         Type = 'Class'
-        Code = $_.SubjectCode
+        Code = $subjectCode
         Name = $_.SubjectName
         Faculty = ''
       }
 
-      Publish-Course($course)
+      $progressBarMessage = "Adding composite class course: $classAlias"
+      $progressCounter0 = $progressCounter + 1
+
+      Get-ProgressBar (
+        $progressCounter0,
+        $compositeClassCount,
+        $progressBarMessage,
+        0
+      )
+
+      $GAM.PublishCourse($course)
+
+      $progressCounter1 = 0
+      $teacherCount = @($_.Teachers).Count
 
       $_.Teachers | ForEach-Object {
 
         $teacher = $_
 
-        if(!$isSimulatingCommands) {
-          Write-Host $cmd
-          $cmd = "gam course $classAlias add teacher $teacher"
-          Invoke-Expression $cmd
-        } else {
-          Write-Host $cmd
+        $courseParticipant = [PSCustomObject]@{
+          Course = $classAlias
+          Type = 'Teacher'
+          Participant = $teacher
         }
+
+        $progressCounter1 = $progressCounter + 1
+        $progressBarMessage = "Adding teacher $teacher to $classAlias"
+        
+        Get-ProgressBar (
+          $progressCounter1,
+          $teacherCount,
+          $progressBarMessage,
+          1
+        )
+
+        $GAM.AddCourseParticipant($courseParticipant)
       }
 
+      $DataSet.Subjects.ClassCodes | ForEach-Object {
 
-      $_.ClassCodes | ForEach-Object {
-        
-        $classCode = $_
-        
-        $DataSet.Classes.$classCode | ForEach-Object {
+        if ($compositeClassCodes -contains $_.Class){
 
-          $student = $_
 
-          $command = "gam course $classAlias add student $student"
-          #Invoke-Expression $command
+          $progressCounter1 = 0
+          $studentCount = $_.Students.Count
 
-          Write-Host "Theres a bug here command is disabled. Investigate"
-          Write-Host $command 
+          $_.Students | ForEach-Object {
+
+            $student = $_
+
+            $courseParticipant = [PSCustomObject]@{
+              Course = $classAlias
+              Type = 'Student'
+              Participant = $student
+            }
+
+            $progressCounter1 = $progressCounter + 1
+            $progressBarMessage = "Adding student $student to $classAlias"
+      
+            Get-ProgressBar (
+              $progressCounter1,
+              $studentCount,
+              $progressBarMessage,
+              1
+            )
+
+            $GAM.AddCourseParticipant($courseParticipant)
+          }
         }
       }
-
-      $progressBarMessage = "Adding subject course: $subjectCode - $subjectName"
-      $progressCounter = $progressCounter + 1
-
-      Get-ProgressBar (
-        $progressCounter,
-        $DataSet.Subjects.Count,
-        $progressBarMessage,
-        0
-      )
     }
   }
-
 
 
   $publishCourse = {
@@ -567,11 +598,11 @@ Invoke-Command -Session $session -ScriptBlock {
 
     $cmd = "gam create course alias $alias name '$name' section '$section' description '$description' heading $alias room $room teacher $classroomAdmin status active"
 
-    if(!$isSimulatingCommands) {
+    if(!$scriptParameters.IsSimulateCommands) {
       Invoke-Expression $cmd
     } else {
       Write-Host $cmd
-      Start-Sleep -Seconds 1
+      Start-Sleep -Seconds 5
     }
   }
 
@@ -584,12 +615,12 @@ Invoke-Command -Session $session -ScriptBlock {
     param([PSCustomObject]$courseParticipant)
 
     if([string]::IsNullOrWhiteSpace($courseParticipant.Type)){
-      Write-Host "Add course participant error: Participant type not defined (stduent/teacher). Script will exit"
+      Write-Host "Add course participant error: Participant type not defined (stduent/teacher). Script will now exit"
       exit
     }
 
     if([string]::IsNullOrWhiteSpace($courseParticipant.Course)){
-      Write-Host "Add course participant error: Course not specified. Script will exit"
+      Write-Host "Add course participant error: Course not specified. Script will now exit"
       exit
     }
 
@@ -599,11 +630,11 @@ Invoke-Command -Session $session -ScriptBlock {
 
     $cmd = "gam course $course add $type $participant"
 
-    if(!$isSimulatingCommands) {
+    if(!$scriptParameters.IsSimulateCommands) {
       Invoke-Expression $cmd
     } else {
       Write-Host $cmd
-      Start-Sleep -Seconds 1
+      Start-Sleep -Seconds 5
     }
   }
 

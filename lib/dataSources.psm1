@@ -72,8 +72,6 @@ function Get-DataSourceObject ($csvPath) {
 
   
   function Add-ClassCodesToSubjectsObject {
-
-    $compositeClassList = $script:Dataset.CompositeClassList
     
     $progressCounter = 0
     
@@ -87,25 +85,18 @@ function Get-DataSourceObject ($csvPath) {
         Where-Object { 
           $_.'Subject Code' -eq $sc
         }
-  
-      
-      $DiffOfCompositeAndStandardClasses = Compare-Object -ReferenceObject $cc.'Class Code' -DifferenceObject $compositeClassList
 
-      if($DiffOfCompositeAndStandardClasses.SideIndicator -eq '<='){
-        
-        [System.Collections.ArrayList]$classCodes = @()
+      [System.Collections.ArrayList]$classCodes = @()
 
-        $cc.'Class Code' | ForEach-Object {
-          $classCode = $_
+      $cc.'Class Code' | ForEach-Object {
+        $classCode = $_
 
-          [void]$classCodes.Add([PSCustomObject]@{
-            Class = $classCode
-          })
-        }
+        [void]$classCodes.Add([PSCustomObject]@{
+          Class = $classCode
+        })
+      }
 
-        $subject | Add-Member -MemberType NoteProperty -Name ClassCodes -Value $classCodes
-
-      } 
+      $subject | Add-Member -MemberType NoteProperty -Name ClassCodes -Value $classCodes
 
       $progressCounter = $progressCounter + 1
 
@@ -167,7 +158,6 @@ function Get-DataSourceObject ($csvPath) {
         "Staff code '$teacherCode' not found in Active Directory" | Out-File -FilePath .\log.txt -Append
       }
 
-    
 
       if ($compositeClassCandiateRows.Count -gt 1) { # if theres more than 1 it's a composite class
 
@@ -175,13 +165,20 @@ function Get-DataSourceObject ($csvPath) {
 
           $compositeClassName = $compositeClassCandiateRows.'Class Code'[0] +  '-' + $compositeClassCandiateRows.'Class Code'[1]
 
+          $teachers = @()
+
+          $compositeClassCandiateRows.'Teacher Code' | Sort-Object -Unique | ForEach-Object {
+            $teacher = $_.ToLower() + $script:config.domainName
+            $teachers += $teacher
+          }
+          
+
           $compositeClasses += [PSCustomObject]@{
             'SubjectCode' = $compositeClassName
             'SubjectName' = "Composite $compositeClassName"  
             'ClassCodes' = $compositeClassCandiateRows.'Class Code'
-            'Teachers' = $compositeClassCandiateRows.'Teacher Code' | Sort-Object -Unique
+            'Teachers' = $teachers
           }
-
         }
 
         $compositeClassCandiateRows.'Class Code' | ForEach-Object {
