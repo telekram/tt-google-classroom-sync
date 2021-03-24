@@ -6,6 +6,8 @@ param(
   [string]$AddTeachersToSubjects=$null,
   [string]$AddTeachersToClasses=$null,
   [string]$AddStudentsToClasses=$null,
+  [string]$AddTeacherToClasses=$null,
+  [string]$Teacher=$null,
   [switch]$AddCompositeClasses,
   [switch]$GetRemoteCourses,
   [string]$FindRemoteCourse=$null,
@@ -22,6 +24,8 @@ $ScriptParameters = [PSCustomObject]@{
   AddTeachersToSubjects = $AddTeachersToSubjects
   AddTeachersToClasses = $AddTeachersToClasses
   AddStudentsToClasses = $AddStudentsToClasses
+  AddTeacherToClasses = $AddTeacherToClasses
+  Teacher = $Teacher
   AddCompositeClasses = $AddCompositeClasses
   GetRemoteCourses = $GetRemoteCourses
   FindRemoteCourse = $FindRemoteCourse
@@ -79,6 +83,14 @@ Invoke-Command -Session $session -ScriptBlock {
 
     if(!$null -eq $scriptParameters.AddTeachersToClasses) {
       Add-TeachersToClasses($scriptParameters.AddTeachersToClasses)
+    }
+
+    if(!$null -eq $scriptParameters.AddTeacherToClasses) {
+      if(!$null -eq $scriptParameters.Teacher) {
+        Add-TeacherToClasses($scriptParameters.AddTeacherToClasses, $scriptParameters.Teacher)
+      } else {
+        Write-Warning "Teacher parameter required"
+      }
     }
 
     if(!$null -eq $scriptParameters.AddStudentsToClasses){
@@ -408,6 +420,49 @@ Invoke-Command -Session $session -ScriptBlock {
           }
         }
       }  
+    }
+  }
+
+  function Add-TeacherToClasses($arg) {
+
+    $class = $arg[0]
+    $teacher = $arg[1]
+
+    $subjects = $DataSet.Subjects | 
+    Where-Object { $_.SubjectCode -like "*$class*" -or $_.SubjectName -like "*$class*" } 
+
+    if(!$subjects) {
+      Write-Host "Subject(s): '$class' not found"
+      exit
+    }
+
+    $progressCounter0 = 0
+    $classCodeCount = $subjects.ClassCodes.Count
+
+    $subjects.ClassCodes | ForEach-Object {
+
+      $class = $academicYear + '-' + $_.Class
+
+      $progressCounter0 += 1
+      $progressBarMessage0 = "Adding teacher $teacher to course $class"
+
+      Get-ProgressBar (
+        $progressCounter0,
+        $classCodeCount,
+        $progressBarMessage0,
+        0
+      )
+
+      if(![string]::IsNullOrWhiteSpace($teacher)) {
+
+        $courseParticipant = [PSCustomObject]@{
+          Course = $class
+          Type = 'Teacher'
+          Participant = $teacher
+        }
+
+        $GAM.AddCourseParticipant($courseParticipant)
+      }
     }
   }
 
