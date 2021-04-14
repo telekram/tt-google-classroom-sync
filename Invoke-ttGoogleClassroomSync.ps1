@@ -11,6 +11,7 @@ param(
   [switch]$AddCompositeClasses,
   [switch]$GetRemoteCourses,
   [string]$FindRemoteCourse=$null,
+  [string]$ArchiveCourses=$null,
   [string]$TestGamCommand=$null,
   [switch]$SimulateCommands
 ) 
@@ -29,6 +30,7 @@ $ScriptParameters = [PSCustomObject]@{
   AddCompositeClasses = $AddCompositeClasses
   GetRemoteCourses = $GetRemoteCourses
   FindRemoteCourse = $FindRemoteCourse
+  ArchiveCourses = $ArchiveCourses
   IsSimulateCommands = $SimulateCommands
   TestGamCommand = $TestGamCommand
 }
@@ -97,6 +99,10 @@ Invoke-Command -Session $session -ScriptBlock {
       Add-StudentsToClasses($scriptParameters.AddStudentsToClasses)
     }
 
+    if(!$null -eq $scriptParameters.ArchiveCourses) {
+      Remove-Courses($scriptParameters.ArchiveCourses)
+    }
+
     if(!$null -eq $scriptParameters.FindRemoteCourse){
       $GAM.FindRemoteCourse($scriptParameters.FindRemoteCourse)
     }
@@ -107,7 +113,6 @@ Invoke-Command -Session $session -ScriptBlock {
   }
 
   function Test-GamCommand($subject) {
-    
     
   }
 
@@ -148,15 +153,13 @@ Invoke-Command -Session $session -ScriptBlock {
         EnrollmentCode = $_.EnrollmentCode
       })
     }
-
-    $script:CloudCourses
   }
 
 
   function Show-Subject($subject) {
 
     $s = $DataSet.Subjects | 
-      Where-Object { $_.SubjectCode -like "*$subject*" } 
+      Where-Object { $_.SubjectCode -like "*$subject*" -or $_.SubjectName -like "*$subject*" } 
 
     if(!$s) {
       Write-Host "Subject(s): '$subject' not found"
@@ -168,10 +171,10 @@ Invoke-Command -Session $session -ScriptBlock {
 
   function Add-SujectCoursesToGoogle($subject) {
     
-    $s = $DataSet.Subjects |
+    $subjects = $DataSet.Subjects |
       Where-Object { $_.SubjectCode -like "*$subject*" } 
 
-    if(!$s) {
+    if(!$subjects) {
       Write-Host "Subject(s): '$subject' not found"
       exit
     }
@@ -179,7 +182,7 @@ Invoke-Command -Session $session -ScriptBlock {
     $progressCounter = 0
     $subjectCount = @($s).Count
 
-    $s | ForEach-Object {
+    $subjects | ForEach-Object {
 
       $course = [PSCustomObject]@{
         Type = 'Subject'
@@ -511,7 +514,6 @@ Invoke-Command -Session $session -ScriptBlock {
           $progressCounter1,
           $studentCount,
           $progressBarMessage1,
-          'Magenta',
           1
         )
 
@@ -536,7 +538,6 @@ Invoke-Command -Session $session -ScriptBlock {
       $compositeClassCodes = $_.ClassCodes
 
       $subjectCode = $_.SubjectCode
-      $subjectName = $_.SubjectName
 
       $classAlias = "$academicYear-$subjectCode"
 
@@ -620,6 +621,48 @@ Invoke-Command -Session $session -ScriptBlock {
     }
   }
 
+  function Remove-Courses($course) {
+
+    Write-Host "Fetching courses from Google"
+    
+    Get-CoursesFromGoogle
+    
+    $returnedCourses = $script:CloudCourses | Where-Object { 
+      $_.DescriptionHeading -like "$academicYear-*$course*" -and $_.CourseState -eq 'ACTIVE'
+    }
+
+    $returnedCourses
+
+    if($returnedCourses) {
+      $answer = Read-Host -Prompt 'Do you wish to archive these course(s)? (y/n)'
+    } else {
+      Write-Host "No courses found for '$course'"
+    }
+
+    if($answer.ToLower() -eq 'y') {
+
+      $progressCounter0 = 0
+      $courseCount = @($returnedCourses).Count
+
+      $returnedCourses | ForEach-Object {
+
+        $courseAlias = $_.DescriptionHeading
+
+        $progressCounter0 += 1
+        $progressBarMessage = "Archiving $courseAlias" 
+
+        Get-ProgressBar (
+          $progressCounter0,
+          $courseCount,
+          $progressBarMessage,
+          0
+        )
+        
+        $GAM.ArchiveCourse($courseAlias)
+      }
+    }
+  }
+
 
   $publishCourse = {
 
@@ -663,7 +706,28 @@ Invoke-Command -Session $session -ScriptBlock {
 
   $GAM | Add-Member -MemberType ScriptMethod -Name PublishCourse -Value $publishCourse
 
+  $archiveCourse = {
 
+    param([string]$courseAlias)
+
+    $alias = $courseAlias
+
+    if([string]::IsNullOrWhiteSpace($alias)){
+      Write-Host "Delete course error: course type not defined. Script will exit"
+      exit
+    }
+
+    $cmd = "gam update course $alias status archive"
+
+    if(!$scriptParameters.IsSimulateCommands) {
+      Invoke-Expression $cmd
+    } else {
+      Write-Host $cmd
+      Start-Sleep -Seconds 5
+    }
+  }
+
+  $GAM | Add-Member -MemberType ScriptMethod -Name ArchiveCourse -Value $archiveCourse
 
   $addCourseParticipant = {
 
