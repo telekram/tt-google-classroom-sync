@@ -291,7 +291,7 @@ Invoke-Command -Session $session -ScriptBlock {
     $s | ForEach-Object {
 
       $subjectCode = $_.SubjectCode
-      $teachers = $_.Teachers
+      [array]$teachers = $_.Teachers
       $domainLeader = $_.DomainLeader
 
       $progressBarMessage0 = "Subject: $subjectCode"
@@ -356,7 +356,7 @@ Invoke-Command -Session $session -ScriptBlock {
 
       $subjectCode = $_.SubjectCode
       $domainLeader = $_.DomainLeader
-      $teachers = $_.Teachers
+      [array]$teachers = $_.Teachers
       $classCodes = $_.ClassCodes
 
       if(![string]::IsNullOrWhiteSpace($domainLeader)) {
