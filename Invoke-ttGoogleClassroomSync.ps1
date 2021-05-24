@@ -113,7 +113,14 @@ Invoke-Command -Session $session -ScriptBlock {
   }
 
   function Test-GamCommand($subject) {
-    
+    $participantsData = gam print course-participants course '2021-1A2D106' 2> $null | Out-String
+    $particpantTable = $participantsData | ConvertFrom-Csv -Delim ',' 
+
+    $particpantTable | ForEach-Object {
+      Write-Host $_.'profile.emailAddress'
+    } 
+
+
   }
 
 
@@ -153,6 +160,7 @@ Invoke-Command -Session $session -ScriptBlock {
         EnrollmentCode = $_.EnrollmentCode
       })
     }
+    $script:CloudCourses
   }
 
 
@@ -289,10 +297,11 @@ Invoke-Command -Session $session -ScriptBlock {
     $subjectCount = @($s).Count
 
     $s | ForEach-Object {
-
       $subjectCode = $_.SubjectCode
       [array]$teachers = $_.Teachers
       $domainLeader = $_.DomainLeader
+
+      $currentClassMembers = $GAM.GetCourseMembers($subjectCode)
 
       $progressBarMessage0 = "Subject: $subjectCode"
       $progressCounter0 = $progressCounter0 + 1
@@ -317,6 +326,20 @@ Invoke-Command -Session $session -ScriptBlock {
       $teachers | ForEach-Object {
         
         $teacher = $_
+
+        if ($currentClassMembers -contains $teacher) {
+          $progressCounter1 = $progressCounter1 + 1
+          $progressBarMessage1 = "$teacher already in course: $class"
+
+          Get-ProgressBar (
+            $progressCounter1,
+            $teacherCount,
+            $progressBarMessage1,
+            1
+          )
+          return
+        }
+
 
         $courseParticipant = [PSCustomObject]@{
           Course = $subjectCode
@@ -380,8 +403,8 @@ Invoke-Command -Session $session -ScriptBlock {
       $classCount = @($classCodes).Count
 
       $classCodes | ForEach-Object {
-        
         $class = $academicYear + '-' + $_.Class
+        $currentClassMembers = $GAM.GetCourseMembers($class)
 
         $progressCounter1 = $progressCounter1 + 1
         $progressBarMessage1 = "Working on class: $class"
@@ -401,6 +424,19 @@ Invoke-Command -Session $session -ScriptBlock {
           $teacher = $_
 
           $progressCounter2 = $progressCounter2 + 1
+
+          if ($currentClassMembers -contains $teacher) {
+            $progressBarMessage2 = "$teacher already in course: $class"
+
+            Get-ProgressBar (
+              $progressCounter2,
+              $teacherCount,
+              $progressBarMessage2,
+              2
+            )
+            return
+          }
+
           $progressBarMessage2 = "Adding $teacher to Google Course $class"
 
           Get-ProgressBar (
@@ -445,6 +481,20 @@ Invoke-Command -Session $session -ScriptBlock {
     $subjects.ClassCodes | ForEach-Object {
 
       $class = $academicYear + '-' + $_.Class
+      $currentClassMembers = $GAM.GetCourseMembers($class)
+
+      if ($currentClassMembers -contains $teacher) {
+        $progressCounter0 += 1
+        $progressBarMessage0 = "$teacher already in course $class"
+  
+        Get-ProgressBar (
+          $progressCounter0,
+          $classCodeCount,
+          $progressBarMessage0,
+          0
+        )
+        return
+      }
 
       $progressCounter0 += 1
       $progressBarMessage0 = "Adding teacher $teacher to course $class"
@@ -664,6 +714,24 @@ Invoke-Command -Session $session -ScriptBlock {
   }
 
 
+
+  $getCourseMembers = {
+    param([string]$courseAlias)
+
+    [System.Collections.ArrayList]$members = @()
+
+    $courseData = gam print course-participants course $courseAlias 2> $null | Out-String
+    $courseMembers = $courseData | ConvertFrom-Csv -Delim ',' 
+
+    $courseMembers | ForEach-Object {
+      $members.Add($_.'profile.emailAddress')
+    }
+
+    return $members
+  }
+
+  $GAM | Add-Member -MemberType ScriptMethod -Name GetCourseMembers -Value $getCourseMembers
+
   $publishCourse = {
 
     param([PSCustomObject]$courseAttributes)
@@ -793,4 +861,4 @@ Invoke-Command -Session $session -ScriptBlock {
 
 } 
 
-Clear-ScriptPSSession
+Clear-ScriptPSSession($session)
