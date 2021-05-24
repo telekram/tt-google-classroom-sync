@@ -56,8 +56,9 @@ Invoke-Command -Session $session -ScriptBlock {
 
   $scriptParameters = $Using:ScriptParameters 
 
-  
   function Main {
+
+    Get-CoursesFromGoogle
 
     if(!$null -eq $scriptParameters.TestGamCommand){
       Test-GamCommand($scriptParameters.TestGamCommand)
@@ -113,20 +114,13 @@ Invoke-Command -Session $session -ScriptBlock {
   }
 
   function Test-GamCommand($subject) {
-    $participantsData = gam print course-participants course '2021-1A2D106' 2> $null | Out-String
-    $particpantTable = $participantsData | ConvertFrom-Csv -Delim ',' 
-
-    $particpantTable | ForEach-Object {
-      Write-Host $_.'profile.emailAddress'
-    } 
-
-
   }
 
 
   function Get-CoursesFromGoogle {
 
     [System.Collections.ArrayList]$script:CloudCourses = @()
+    [System.Collections.ArrayList]$script:CloudCourseAliases = @()
 
     $gCourses = gam print courses teacher $classroomAdmin 2> $null | Out-String
     $courses = $gCourses | ConvertFrom-Csv -Delim ','
@@ -148,7 +142,8 @@ Invoke-Command -Session $session -ScriptBlock {
         0
       )
 
-    
+      [void]$script:CloudCourseAliases.Add($_.DescriptionHeading)
+
       [void]$script:CloudCourses.Add([PSCustomObject]@{
         Id = $_.id
         Name = $_.Name
@@ -160,7 +155,6 @@ Invoke-Command -Session $session -ScriptBlock {
         EnrollmentCode = $_.EnrollmentCode
       })
     }
-    $script:CloudCourses
   }
 
 
@@ -188,7 +182,7 @@ Invoke-Command -Session $session -ScriptBlock {
     }
 
     $progressCounter = 0
-    $subjectCount = @($s).Count
+    $subjectCount = @($subjects).Count
 
     $subjects | ForEach-Object {
 
@@ -765,7 +759,9 @@ Invoke-Command -Session $session -ScriptBlock {
     $cmd = "gam create course alias $alias name '$name' section '$section' description '$description' heading $alias room $room teacher $classroomAdmin status active"
 
     if(!$scriptParameters.IsSimulateCommands) {
-      Invoke-Expression $cmd
+      if ($script:CloudCourseAliases -notcontains $alias) {
+        Invoke-Expression $cmd
+      } 
     } else {
       Write-Host $cmd
       Start-Sleep -Seconds 5
