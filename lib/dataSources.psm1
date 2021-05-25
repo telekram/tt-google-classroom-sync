@@ -91,9 +91,11 @@ function Get-DataSourceObject ($csvPath) {
       $cc.'Class Code' | ForEach-Object {
         $classCode = $_
 
-        [void]$classCodes.Add([PSCustomObject]@{
-          Class = $classCode
-        })
+        if ($script:Dataset.CompositeClassList -notcontains $classCode) {
+          [void]$classCodes.Add([PSCustomObject]@{
+            Class = $classCode
+          })
+        }
       }
 
       $subject | Add-Member -MemberType NoteProperty -Name ClassCodes -Value $classCodes
@@ -109,22 +111,25 @@ function Get-DataSourceObject ($csvPath) {
       )
     }
     
-    $indexesOfSubjectsWihtoutAnyClasses = @()
+    Remove-SubjectsWithoutClasses
+  }
+
+  function Remove-SubjectsWithoutClasses {
+    [array]$SubjectsWihtoutClassesIndexes = @()
     $index = 0
 
     $script:Dataset.Subjects | ForEach-Object {
       if($_.ClassCodes.Count -eq 0) {
-        $indexesOfSubjectsWihtoutAnyClasses += $index
+        $SubjectsWihtoutClassesIndexes += $index
       }
       $index = $index + 1
     }
-    
-    $indexesOfSubjectsWihtoutAnyClasses | 
+
+    $SubjectsWihtoutClassesIndexes | 
       Sort-Object -Descending | 
         ForEach-Object {
           $script:Dataset.Subjects.RemoveAt($_)
     }
-    
   }
   
   function Get-CompositeClasses {
@@ -146,7 +151,6 @@ function Get-DataSourceObject ($csvPath) {
       $teacherCode = $_.'Teacher Code'
 
       if(Test-ActiveDirectoryForUser($teacherCode)) {
-
         $compositeClassCandiateRows = $script:TimetableObj.Timetable | 
           Sort-Object -Property 'Class Code' | 
             Where-Object {
