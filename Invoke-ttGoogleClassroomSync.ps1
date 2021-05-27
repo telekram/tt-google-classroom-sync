@@ -9,10 +9,10 @@ param(
   [string]$AddTeacherToClasses=$null,
   [string]$Teacher=$null,
   [switch]$AddCompositeClasses,
-  [switch]$GetRemoteCourses,
   [string]$FindRemoteCourse=$null,
   [string]$ArchiveCourses=$null,
   [string]$TestGamCommand=$null,
+  [switch]$FullSync,
   [switch]$SimulateCommands
 ) 
 
@@ -31,6 +31,7 @@ $ScriptParameters = [PSCustomObject]@{
   GetRemoteCourses = $GetRemoteCourses
   FindRemoteCourse = $FindRemoteCourse
   ArchiveCourses = $ArchiveCourses
+  FullSync = $FullSync
   IsSimulateCommands = $SimulateCommands
   TestGamCommand = $TestGamCommand
 }
@@ -60,12 +61,19 @@ Invoke-Command -Session $session -ScriptBlock {
 
     Get-CoursesFromGoogle
 
-    if(!$null -eq $scriptParameters.TestGamCommand){
-      Test-GamCommand($scriptParameters.TestGamCommand)
+    if($scriptParameters.FullSync) {
+      Add-SujectCoursesToGoogle('*')
+      Add-ClassCoursesToGoogle('*')
+      Add-TeachersToSubjects('*')
+      Add-TeachersToClasses('*')
+      Add-StudentsToClasses('*')
+      Write-Warning "GAM command log located at path:"
+      Get-Location
+      return
     }
 
-    if($scriptParameters.GetRemoteCourses){
-      Get-CoursesFromGoogle
+    if(!$null -eq $scriptParameters.TestGamCommand){
+      Test-GamCommand($scriptParameters.TestGamCommand)
     }
 
     if(!$null -eq $scriptParameters.ShowSubjects) {
@@ -323,7 +331,7 @@ Invoke-Command -Session $session -ScriptBlock {
 
         if ($currentClassMembers -contains $teacher) {
           $progressCounter1 = $progressCounter1 + 1
-          $progressBarMessage1 = "$teacher already in course: $class"
+          $progressBarMessage1 = "SKIPPING: $teacher already in course: $class"
 
           Get-ProgressBar (
             $progressCounter1,
@@ -398,6 +406,7 @@ Invoke-Command -Session $session -ScriptBlock {
 
       $classCodes | ForEach-Object {
         $class = $academicYear + '-' + $_.Class
+
         $currentClassMembers = $GAM.GetCourseMembers($class)
 
         $progressCounter1 = $progressCounter1 + 1
@@ -420,7 +429,7 @@ Invoke-Command -Session $session -ScriptBlock {
           $progressCounter2 = $progressCounter2 + 1
 
           if ($currentClassMembers -contains $teacher) {
-            $progressBarMessage2 = "$teacher already in course: $class"
+            $progressBarMessage2 = "SKIPPING: $teacher already in course: $class"
 
             Get-ProgressBar (
               $progressCounter2,
@@ -479,7 +488,7 @@ Invoke-Command -Session $session -ScriptBlock {
 
       if ($currentClassMembers -contains $teacher) {
         $progressCounter0 += 1
-        $progressBarMessage0 = "$teacher already in course $class"
+        $progressBarMessage0 = "SKIPPING: $teacher already in course $class"
   
         Get-ProgressBar (
           $progressCounter0,
@@ -528,8 +537,9 @@ Invoke-Command -Session $session -ScriptBlock {
     $classCodesTotal = @($classCodes).Count
 
     $classCodes | ForEach-Object {
-
       $class = $academicYear + '-' + $_.Class
+
+      $currentClassMembers = $GAM.GetCourseMembers($class)
      
       $students = $_.Students
 
@@ -551,6 +561,19 @@ Invoke-Command -Session $session -ScriptBlock {
         $student = $_
 
         $progressCounter1 = $progressCounter1 + 1
+
+        if ($currentClassMembers -contains $student) {
+          $progressBarMessage1 = "SKIPPING: $student already in course $class"
+    
+          Get-ProgressBar (
+            $progressCounter1,
+            $studentCount,
+            $progressBarMessage0,
+            1
+          )
+          return
+        }
+
         $progressBarMessage1 = "Adding student $student"
 
 
@@ -760,7 +783,8 @@ Invoke-Command -Session $session -ScriptBlock {
 
     if(!$scriptParameters.IsSimulateCommands) {
       if ($script:CloudCourseAliases -notcontains $alias) {
-        Invoke-Expression $cmd
+        Invoke-Expression $cmd -OutVariable outv 2> $null | Out-Null
+        Update-Log("PublishCourse: $outv")
       } 
     } else {
       Write-Host $cmd
@@ -784,7 +808,8 @@ Invoke-Command -Session $session -ScriptBlock {
     $cmd = "gam update course $alias status archive"
 
     if(!$scriptParameters.IsSimulateCommands) {
-      Invoke-Expression $cmd
+      Invoke-Expression $cmd -OutVariable outv 2> $null | Out-Null
+      Update-Log("ArchiveCourse: $outv")
     } else {
       Write-Host $cmd
       Start-Sleep -Seconds 5
@@ -814,7 +839,8 @@ Invoke-Command -Session $session -ScriptBlock {
     $cmd = "gam course $course add $type $participant"
 
     if(!$scriptParameters.IsSimulateCommands) {
-      Invoke-Expression $cmd
+      Invoke-Expression $cmd -OutVariable outv 2> $null | Out-Null
+      Update-Log("AddCourseParticipant: $outv")
     } else {
       Write-Host $cmd
       Start-Sleep -Seconds 5
@@ -825,8 +851,6 @@ Invoke-Command -Session $session -ScriptBlock {
 
   $findRemoteCourse = {
     param([string]$subject)
-
-    Get-CoursesFromGoogle
     
     $returnedSubjects = $script:CloudCourses | Where-Object { 
       $_.DescriptionHeading -like "*$subject*" 
@@ -853,8 +877,12 @@ Invoke-Command -Session $session -ScriptBlock {
     }
   }
 
-  Main
+  function Update-Log($text) {
+    $dt = Get-Date -Format "dd/MM/yyyy hh:mm tt"
+    $dt + ": " + $text | Out-File -FilePath '.\Gam-Command-Log.txt' -Append
+  }
 
+  Main
 } 
 
 Clear-ScriptPSSession($session)

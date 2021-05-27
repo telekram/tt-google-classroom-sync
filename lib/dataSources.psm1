@@ -5,7 +5,8 @@ $script:config = Get-Content -Raw -Path .\config.json | ConvertFrom-Json
 function Get-DataSourceObject ($csvPath) {
 
   function Main {
-
+    Clear-Log
+    Approve-ScriptConditions
     Get-TimetableDataAsObjectFromCsvFiles
     Add-SubjectsToDataset
     Get-CompositeClasses
@@ -14,6 +15,8 @@ function Get-DataSourceObject ($csvPath) {
     add-DomainLeadersToSubjectObject
     Add-StudentsToClassCodes
   }
+
+
 
   function Get-TimetableDataAsObjectFromCsvFiles {
 
@@ -68,6 +71,7 @@ function Get-DataSourceObject ($csvPath) {
         }
     
     $script:Dataset.Subjects = $subjects
+    Update-Log("Dataset: subjects added")
   }
 
   
@@ -112,6 +116,7 @@ function Get-DataSourceObject ($csvPath) {
     }
     
     Remove-SubjectsWithoutClasses
+    Update-Log("Dataset: classcodes added to subjects")
   }
 
   function Remove-SubjectsWithoutClasses {
@@ -124,7 +129,7 @@ function Get-DataSourceObject ($csvPath) {
       }
       $index = $index + 1
     }
-
+    
     $SubjectsWihtoutClassesIndexes | 
       Sort-Object -Descending | 
         ForEach-Object {
@@ -132,6 +137,8 @@ function Get-DataSourceObject ($csvPath) {
     }
   }
   
+
+
   function Get-CompositeClasses {
     
     $compositeClasses = @()
@@ -150,17 +157,14 @@ function Get-DataSourceObject ($csvPath) {
       $periodNumber = $_.'Period No'
       $teacherCode = $_.'Teacher Code'
 
-      if(Test-ActiveDirectoryForUser($teacherCode)) {
-        $compositeClassCandiateRows = $script:TimetableObj.Timetable | 
-          Sort-Object -Property 'Class Code' | 
-            Where-Object {
-              $_.'Day No' -eq $dayNumber -and 
-              $_.'Period No' -eq $periodNumber -and 
-              $_.'Teacher Code' -eq $teacherCode
-            }
-      } else {
-        "Staff code '$teacherCode' not found in Active Directory" | Out-File -FilePath .\log.txt -Append
-      }
+
+      $compositeClassCandiateRows = $script:TimetableObj.Timetable | 
+        Sort-Object -Property 'Class Code' | 
+          Where-Object {
+            $_.'Day No' -eq $dayNumber -and 
+            $_.'Period No' -eq $periodNumber -and 
+            $_.'Teacher Code' -eq $teacherCode
+          }
 
 
       if ($compositeClassCandiateRows.Count -gt 1) { # if theres more than 1 it's a composite class
@@ -203,6 +207,8 @@ function Get-DataSourceObject ($csvPath) {
 
     $script:Dataset.CompositeClasses = $compositeClasses
     $script:Dataset.CompositeClassList = $compositeClassList
+
+    Update-Log("Dataset: composite classes added")
   }
 
   function Add-TeachersToSubjectObject {
@@ -229,11 +235,11 @@ function Get-DataSourceObject ($csvPath) {
         $allTimetabledTeacherCodes | ForEach-Object {
 
           $teacherCode = $_
-
+          
           if(Test-ActiveDirectoryForUser($teacherCode)) {
             $teachers += $teacherCode.ToLower() + $script:config.domainName
           } else {
-            "Staff code '$teacherCode' not found in Active Directory" | Out-File -FilePath .\log.txt -Append
+            Update-Log("f:Add-TeachersToSubjectObject --> staff code '$teacherCode' not found in Active Directory")
           }
         }
       }
@@ -251,6 +257,7 @@ function Get-DataSourceObject ($csvPath) {
         $progressBarMessage
       )
     }
+    Update-Log("Dataset: teachers added to subject")
   }
   
 
@@ -279,6 +286,7 @@ function Get-DataSourceObject ($csvPath) {
       $faculty = $_.FacultyName
 
       $domainLeaders | Where-Object{
+
         if ($faculty -eq $_.Domain) {
   
           $isDomainLeaderAlreadyAdded = [bool]($subject.PSObject.Properties.Name -match 'DomainLeader')
@@ -287,10 +295,10 @@ function Get-DataSourceObject ($csvPath) {
 
           if(!$isDomainLeaderAlreadyAdded) {
 
-            if(Test-ActiveDirectoryForUser($_.Member)) {
+            if (Test-ActiveDirectoryForUser($_.Member)) {
               $subject | Add-Member -MemberType NoteProperty -Name DomainLeader -Value $dLeader
             } else {
-              "Domain Leader: '$dLeader' not found in Active Directory" | Out-File -FilePath .\log.txt -Append
+              Update-Log("f:Add-DomainLeadersToSubjectObject --> domain leader: '$dLeader' not found in Active Directory")
             }
           }     
         }
@@ -305,6 +313,7 @@ function Get-DataSourceObject ($csvPath) {
         $progressBarMessage
       )
     }
+    Update-Log("Dataset: domain leaders added to subjects")
   }
 
 
@@ -328,13 +337,12 @@ function Get-DataSourceObject ($csvPath) {
       }
 
       $students | ForEach-Object {
-
         $student = $_
 
         if (Test-ActiveDirectoryForUser($student)) {
           $studentsInActiveDirectory += $student.ToLower() + $script:config.domainName
         } else {
-          "Student: $student not found in Active Directory" | Out-File -FilePath .\log.txt -Append
+          Update-Log("f:Add-StudentsToClassCodes -- > student: $student not found in Active Directory")
         }
       }
 
@@ -349,6 +357,7 @@ function Get-DataSourceObject ($csvPath) {
         $progressBarMessage
       )
     }
+    Update-Log("Dataset: students added to classcodes")
   }
 
   function Test-ActiveDirectoryForUser($user) {
@@ -361,9 +370,32 @@ function Get-DataSourceObject ($csvPath) {
     } else {
       return 1
     }
-
   }
 
+  function Clear-Log {
+    $file = '.\log.txt'
+    if (Test-Path $file -PathType leaf) {
+        Remove-Item $file
+    }
+  }
+
+  function Approve-ScriptConditions {
+    if (!$script:config.isActiveDirectoryAvailable) {
+      Write-Warning "Script is running without Active Directory and won't be able to verify that users in timetable exist in AD."
+      $answer = Read-Host "isAvtiveDirectory flag set to false in config.json. Do you wish to continue? (y/n)"
+      
+      if ($answer.ToLower() -ne 'y') {
+        exit
+      } 
+
+      Update-Log("Dataset: generating without Active Direcoty and may contain invalid users")
+    }
+  }
+
+  function Update-Log($text) {
+    $dt = Get-Date -Format "dd/MM/yyyy hh:mm tt"
+    $dt + ": " + $text | Out-File -FilePath '.\log.txt' -Append
+  }
   
   function Get-ProgressBar ($arg) {    
     
@@ -377,6 +409,7 @@ function Get-DataSourceObject ($csvPath) {
   Main
 
   return $script:Dataset
+  Update-Log("Dataset: complete")
 }
 
 
